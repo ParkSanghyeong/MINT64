@@ -4,7 +4,7 @@
 # brief		OS 이미지를 빌드하기 위한 make 파일
 
 # 기본적으로 빌드를 수행할 목록
-all: BootLoader Kernel32 Kernel64 Disk.img
+all: Utility BootLoader Kernel32 Kernel64 Disk.img 
 
 # 부트 로더 빌드를 위해 부트 로더 디렉터리에서 make 실행
 BootLoader:
@@ -73,3 +73,4 @@ clean:
 	make -C 02.Kernel64 clean
 	make -C 04.Utility clean
 	rm -f Disk.img	
+	rm ImageMaker
