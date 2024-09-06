@@ -1,5 +1,5 @@
 #!/bin/bash
 
-qemu-system-x86_64 -m 64 -fda ./Disk.img -M pc
+qemu-system-x86_64 -L . -m 64 -fda ./Disk.img -M pc -display curses
 
 exit 0
