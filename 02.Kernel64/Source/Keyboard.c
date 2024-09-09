@@ -1,6 +1,8 @@
 #include "Types.h"
 #include "AssemblyUtility.h"
 #include "Keyboard.h"
+#include "Queue.h"
+#include "Utility.h"
 
 BOOL kIsOutputBufferFull(void) {
     if(kInPortByte(0x64) & 0x01) {
@@ -16,8 +18,36 @@ BOOL kIsInputBufferFull(void) {
     return FALSE;
 }
 
+BOOL kWaitForACKandPutOtherScanCode(void) {
+    int i,j;
+    BYTE bData;
+    BOOL bResult = FALSE;
+
+    for(j = 0; j < 100; j++) {
+        for(i = 0; i < 0xffff; i++) {
+            if(kIsOutputBufferFull() == TRUE) {
+                break;
+            }
+        }
+
+        bData = kInPortByte(0x60);
+        if(bData == 0xfa) {
+            bResult = TRUE;
+            break;
+        }
+        else {
+            kConvertScanCodeAndPutQueue(bData);
+        }
+    }
+    return bResult;
+}
+
 BOOL kActivateKeyboard(void) {
     int i, j;
+    BOOL bPreviousInterrupt;
+    BOOL bResult;
+
+    bPreviousInterrupt = kSetInterruptFlag(FALSE);
 
     kOutPortByte(0x64, 0xAE);
 
@@ -29,17 +59,10 @@ BOOL kActivateKeyboard(void) {
 
     kOutPortByte(0x60, 0xf4);
 
-    for(j = 0; j < 100; j++) {
-        for(i = 0; i < 0xffff; i++) {
-            if(kIsOutputBufferFull() == TRUE) {
-                break;
-            }
-        }
-        if(kInPortByte(0x60) == 0xfa) {
-            return TRUE;
-        }
-    }
-    return FALSE;
+    bResult = kWaitForACKandPutOtherScanCode();
+
+    kSetInterruptFlag(bPreviousInterrupt);
+    return bResult;
 }
 
 BYTE kGetKeyboardScanCode(void) {
@@ -49,6 +72,11 @@ BYTE kGetKeyboardScanCode(void) {
 
 BOOL kChangeKeyboardLED(BOOL bCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn) {
     int i, j;
+    BOOL bPreviousInterrupt;
+    BOOL bResult;
+    BYTE bData;
+
+    bPreviousInterrupt = kSetInterruptFlag(FALSE);
 
     for(i = 0; i < 0xffff; i++) {
         if(kIsInputBufferFull() == FALSE) {
@@ -63,42 +91,22 @@ BOOL kChangeKeyboardLED(BOOL bCapsLockOn, BOOL bNumLockOn, BOOL bScrollLockOn) {
         }
     }
 
-    for(j = 0; j < 100; j++) {
-        for(i = 0; i < 0xffff; i++) {
-            if(kIsOutputBufferFull() == TRUE) {
-                break;
-            }
-        }
-        if(kInPortByte(0x60) == 0xfa) {
-            break;
-        }
-    }
-
-    if(j >= 100) {
+    bResult = kWaitForACKandPutOtherScanCode();
+    if(bResult == FALSE) {
+        kSetInterruptFlag(bPreviousInterrupt);
         return FALSE;
     }
-
+    
     kOutPortByte(0x60, (bCapsLockOn << 2) | (bNumLockOn << 1) | bScrollLockOn);
     for(i = 0; i < 0xffff; i++) {
         if(kIsInputBufferFull() == FALSE) {
             break;
         }
     }
-    for(j = 0; j < 100; j++) {
-        for(i = 0; i < 0xffff; i++) {
-            if(kIsOutputBufferFull() == TRUE) {
-                break;
-            }
-        }
-        if(kInPortByte(0x60) == 0xfa) {
-            break;
-        } 
-    }
-    if(j >= 100) {
-        return FALSE;
-    }
 
-    return TRUE;
+    bResult = kWaitForACKandPutOtherScanCode();
+    kSetInterruptFlag(bPreviousInterrupt);
+    return bResult;
 }
 
 void kEnableA20Gate(void) {
@@ -140,6 +148,9 @@ void kReboot(void) {
 }
 
 static KEYBOARDMANAGER gs_stKeyboardManager = {0, };
+
+static QUEUE gs_stKeyQueue;
+static KEYDATA gs_vstKeyQueueBuffer[KEY_MAXQUEUECOUNT];
 static KEYMAPPINGENTRY gs_vstKeyMappingTable[ KEY_MAPPINGTABLEMAXCOUNT ] = {
     /*  0   */  {   KEY_NONE        ,   KEY_NONE        },
     /*  1   */  {   KEY_ESC         ,   KEY_ESC         },
@@ -232,6 +243,40 @@ static KEYMAPPINGENTRY gs_vstKeyMappingTable[ KEY_MAPPINGTABLEMAXCOUNT ] = {
     /*  87  */  {   KEY_F11         ,   KEY_F11         },
     /*  88  */  {   KEY_F12         ,   KEY_F12         }
 };
+
+BOOL kInitializeKeyboard(void) {
+    kInitializeQueue(&gs_stKeyQueue, gs_vstKeyQueueBuffer, KEY_MAXQUEUECOUNT, sizeof(KEYDATA));
+    return kActivateKeyboard();
+}
+
+BOOL kConvertScanCodeAndPutQueue(BYTE bScanCode) {
+    KEYDATA stData;
+    BOOL bResult = FALSE;
+    BOOL bPreviousInterrupt;
+
+    stData.bScanCode = bScanCode;
+
+    if(kConvertScanCodeToASCIICode(bScanCode, &(stData.bASCIICode), &(stData.bFlags)) == TRUE) {
+        bPreviousInterrupt = kSetInterruptFlag(FALSE);
+        bResult = kPutQueue(&gs_stKeyQueue, &stData);
+        kSetInterruptFlag(bPreviousInterrupt);
+    }
+    return bResult;
+}
+
+BOOL kGetKeyFromKeyQueue(KEYDATA* pstData) {
+    BOOL bResult;
+    BOOL bPreviousInterrupt;
+
+    if(kIsQueueEmpty(&gs_stKeyQueue) == TRUE) {
+        return FALSE;
+    }
+
+    bPreviousInterrupt = kSetInterruptFlag(FALSE);
+    bResult = kGetQueue(&gs_stKeyQueue, pstData);
+    kSetInterruptFlag(bPreviousInterrupt);
+    return bResult;
+}
 
 BOOL kIsAlphabetScanCode(BYTE bScanCode) {
     BYTE ch = gs_vstKeyMappingTable[bScanCode].bNormalCode;

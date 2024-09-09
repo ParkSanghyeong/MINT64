@@ -3,6 +3,7 @@
 #include "Utility.h"
 #include "Descriptor.h"
 #include "AssemblyUtility.h"
+#include "PIC.h"
 
 void kPrintString(int iX, int iY, const char* pcString);
 
@@ -11,11 +12,12 @@ void Main(void) {
     BYTE bFlags;
     BYTE bTemp;
     int i = 0;
+    KEYDATA stData;
 
     kPrintString(0, 10, "Switch To IA-32e Mode Success.");
     kPrintString(0, 11, "IA-32e C Language Kernel Start..............[PASS]");
     
-    kPrintString(0,12, "GDT Initialize And Switch For IA-32e Mode....[    ]");
+    kPrintString(0, 12, "GDT Initialize And Switch For IA-32e Mode...[    ]");
     kInitializeGDTTableAndTSS();
     kLoadGDTR(GDTR_STARTADDRESS);
     kPrintString(45, 12, "PASS");
@@ -29,9 +31,9 @@ void Main(void) {
     kLoadIDTR(IDTR_STARTADDRESS);
     kPrintString(45, 14, "PASS");
 
-    kPrintString(0, 15, "KeyBoard Activate...........................[    ]");
+    kPrintString(0, 15, "KeyBoard Activate And Queue Initialize......[    ]");
 
-    if(kActivateKeyboard() == TRUE) {
+    if(kInitializeKeyboard() == TRUE) {
         kPrintString(45, 15 , "PASS");
         kChangeKeyboardLED(FALSE, FALSE, FALSE);
     }
@@ -40,17 +42,20 @@ void Main(void) {
         while(1);
     }
 
+    kPrintString(0, 16, "PIC Controller And Interrupt Initialize.....[    ]");
+    kInitializePIC();
+    kMaskPICInterrupt(0);
+    kEnableInterrupt();
+    kPrintString(45, 16, "PASS");
+
     while(1) {
-        if(kIsOutputBufferFull() == TRUE) {
-            bTemp = kGetKeyboardScanCode();
+        if(kGetKeyFromKeyQueue(&stData) == TRUE) {
+            if(stData.bFlags & KEY_FLAGS_DOWN) {
+                vcTemp[0] = stData.bASCIICode;
+                kPrintString(i++, 17, vcTemp);
 
-            if(kConvertScanCodeToASCIICode(bTemp, &(vcTemp[0]), &bFlags) == TRUE) {
-                if(bFlags & KEY_FLAGS_DOWN) {
-                    kPrintString(i++, 16, vcTemp);
-
-                    if(vcTemp[0] == '0') {
-                        bTemp = bTemp/0;
-                    }
+                if(vcTemp[0] == '0') {
+                    bTemp = bTemp/0;
                 }
             }
         }

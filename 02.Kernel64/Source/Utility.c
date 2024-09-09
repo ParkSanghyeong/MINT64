@@ -1,4 +1,5 @@
 #include "Utility.h"
+#include "AssemblyUtility.h"
 
 void kPrintString(int iX, int iY, const char* pcString) {
     CHARACTER* pstScreen = (CHARACTER*) 0xb8000;
@@ -39,4 +40,21 @@ int kMemCmp(void* pvDestination, const void* pvSource, int iSize) {
         }
     }
     return 0;
+}
+
+BOOL kSetInterruptFlag(BOOL bEnableInterrupt) {
+    QWORD qwRFLAGS;
+
+    qwRFLAGS = kReadRFLAGS();
+    if(bEnableInterrupt == TRUE) {
+        kEnableInterrupt();
+    }
+    else {
+        kDisableInterrupt();
+    }
+
+    if(qwRFLAGS & 0x0200) {
+        return TRUE;
+    }
+    return FALSE;
 }
