@@ -38,7 +38,7 @@ START:
 
 .SCREENCLEARLOOP:
     mov byte [es:si], 0         ; char
-    mov byte [es:si+1], 0x07    ; attribute
+    mov byte [es:si+1], 0x0f    ; attribute
     add si, 2
     cmp si, 80*25*2
     jl .SCREENCLEARLOOP

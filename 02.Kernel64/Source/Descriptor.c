@@ -1,6 +1,7 @@
 #include "Descriptor.h"
 #include "Utility.h"
 #include "ISR.h"
+#include "Console.h"
 
 void kInitializeGDTTableAndTSS(void) {
     GDTR* pstGDTR;
@@ -165,9 +166,9 @@ void kSetIDTEntry(IDTENTRY* pstEntry, void* pvHandler, WORD wSelector, BYTE bIST
 }
 
 void kDummyHandler(void) {
-    kPrintString(0, 0, "==================================================");
-    kPrintString(0, 1, "                Dummy Handler excute              ");
-    kPrintString(0, 2, "           Interrupt or Exception occured         ");
-    kPrintString(0, 3, "==================================================");
+    kPrintStringXY(0, 0, "==================================================");
+    kPrintStringXY(0, 1, "                Dummy Handler excute              ");
+    kPrintStringXY(0, 2, "           Interrupt or Exception occured         ");
+    kPrintStringXY(0, 3, "==================================================");
     while(1);
 }
