@@ -2,13 +2,23 @@
 #include "Console.h"
 #include "Keyboard.h"
 #include "Utility.h"
+#include "PIT.h"
+#include "RTC.h"
+#include "AssemblyUtility.h"
+#include "InterruptHandler.h"
 
 SHELLCOMMANDENTRY gs_vstCommandTable[] = {
     {"help", "Show Help", kHelp},
     {"cls", "Clear Screen", kCls},
     {"totalram", "Show Total RAM Size", kShowTotalRAMSize},
     {"strtod", "String To Decial/Hex Convert", kStringToDecimalHexTest},
-    {"shutdown", "Shutdown And Reboot OS", kShutdown}
+    {"shutdown", "Shutdown And Reboot OS", kShutdown},
+    {"settimer", "Set PIT Controller Counter0, ex)settimer 10(ms) 1(periodic)", kSetTimer},
+    {"wait", "Wait ms Using PIT, ex)wait 100(ms)", kWaitUsingPIT},
+    {"rdtsc", "Read Time Stamp Counter", kReadTimeStampCounter},
+    {"cpuspeed", "Measure Processor Speed", kMeasureProcessorSpeed},
+    {"date", "Show Date And Time", kShowDateAndTime},
+    {"timercnt", "Count Timer Interrupts occurred", kTimerInterruptCount}
 };
 
 // Main Console Shell Loop
@@ -180,22 +190,16 @@ void kStringToDecimalHexTest( const char* pcParameterBuffer )
     
     kInitializeParameter( &stList, pcParameterBuffer );
     
-    while( 1 )
-    {
-        // 다음 파라미터를 구함, 파라미터의 길이가 0이면 파라미터가 없는 것이므로
-        // 종료
+    while( 1 ) {
         iLength = kGetNextParameter( &stList, vcParameter );
         if( iLength == 0 )
         {
             break;
         }
 
-        // 파라미터에 대한 정보를 출력하고 16진수인지 10진수인지 판단하여 변환한 후
-        // 결과를 printf로 출력
         kPrintf( "Param %d = '%s', Length = %d, ", iCount + 1, 
                  vcParameter, iLength );
 
-        // 0x로 시작하면 16진수, 그외는 10진수로 판단
         if( kMemCmp( vcParameter, "0x", 2 ) == 0 )
         {
             lValue = kAToI( vcParameter + 2, 16 );
@@ -211,9 +215,6 @@ void kStringToDecimalHexTest( const char* pcParameterBuffer )
     }
 }
 
-/**
- *  PC를 재시작(Reboot)
- */
 void kShutdown( const char* pcParamegerBuffer )
 {
     kPrintf( "System Shutdown Start...\n" );
@@ -222,4 +223,115 @@ void kShutdown( const char* pcParamegerBuffer )
     kPrintf( "Press Any Key To Reboot PC..." );
     kGetCh();
     kReboot();
+}
+
+void kSetTimer(const char* pcParameterBuffer) {
+    char vcParameter[100];
+    PARAMETERLIST stList;
+    long lValue;
+    BOOL bPeriodic;
+
+    kInitializeParameter(&stList, pcParameterBuffer);
+    
+    // millisecond
+    if(kGetNextParameter(&stList, vcParameter) == 0) {
+        kPrintf("ex) settimer 10(mx) 1(periodic)\n");
+        return;
+    }
+    lValue = kAToI(vcParameter, 10);
+
+    if(kGetNextParameter(&stList, vcParameter) == 0) {
+        kPrintf("ex) settimer 10(mx) 1(periodic)\n");
+        return;
+    }
+    bPeriodic = kAToI(vcParameter, 10);
+
+    kInitializePIT(MSTOCOUNT(lValue), bPeriodic);
+    kPrintf("Time = %d ms, Periodic = %d Change Complete\n", lValue, bPeriodic);
+}
+
+void kWaitUsingPIT(const char* pcParameterBuffer) {
+    char vcParameter[100];
+    int iLength;
+    PARAMETERLIST stList;
+    long lMillisecond;
+    int i;
+
+    kInitializeParameter(&stList, pcParameterBuffer);
+    if(kGetNextParameter(&stList, vcParameter) == 0) {
+        kPrintf("ex) wait 100(ms)\n");
+        return;
+    }
+    lMillisecond = kAToI(pcParameterBuffer, 10);
+    kPrintf("%d ms Sleep Start...\n", lMillisecond);
+
+    kDisableInterrupt();
+
+    // wait
+    for(i = 0; i < lMillisecond/30; i++) {
+        kWaitUsingDirectPIT(MSTOCOUNT(30));
+    }
+    kWaitUsingDirectPIT(MSTOCOUNT(lMillisecond%30));
+    
+    kEnableInterrupt();
+    kPrintf("%d ms Sleep Complete\n", lMillisecond);
+
+    // restore timer
+    kInitializePIT(MSTOCOUNT(1), TRUE);
+}
+
+void kReadTimeStampCounter(const char* pcParameterBuffer) {
+    QWORD qwTSC;
+
+    qwTSC = kReadTSC();
+    kPrintf("Time Stamp Counter = %q\n", qwTSC);
+}
+
+void kMeasureProcessorSpeed(const char* pcParameterBuffer) {
+    int i;
+    QWORD qwLastTSC, qwTotalTSC = 0;
+
+    kPrintf("Now Measuring.");
+    
+    kDisableInterrupt();
+
+    for(i = 0; i < 200; i++) {
+        qwLastTSC = kReadTSC();
+        kWaitUsingDirectPIT(MSTOCOUNT(50));
+        qwTotalTSC += kReadTSC() - qwLastTSC;
+
+        kPrintf(".");
+    }
+    kInitializePIT(MSTOCOUNT(1), TRUE);
+    kEnableInterrupt();
+
+    kPrintf("\nCPU Speed = %d MHz\n", qwTotalTSC/10/1000/1000);
+}
+
+void kShowDateAndTime(const char* pcParameterBuffer) {
+    BYTE bSecond, bMinute, bHour;
+    BYTE bDayOfWeek, bDayOfMonth, bMonth;
+    WORD wYear;
+
+    kReadRTCTime(&bHour, &bMinute, &bSecond);
+    kReadRTCDate(&wYear, &bMonth, &bDayOfMonth, &bDayOfWeek);
+
+    kPrintf("Date: %d/%d/%d %s, ", wYear, bMonth, bDayOfMonth, kConvertDayOfWeekToString(bDayOfWeek));
+    kPrintf("Time: %d:%d:%d\n", bHour, bMinute, bSecond);
+}
+
+void kTimerInterruptCount(const char* pcParameterBuffer) {
+    QWORD start_tsc;
+    QWORD end_tsc;
+
+    int tsc_freq = 1000000000;
+    resetTimerCount();
+
+    start_tsc = kReadTSC();
+
+    do {
+        end_tsc = kReadTSC();
+    } while((end_tsc-start_tsc) < tsc_freq * 5);
+
+    kPrintf("Timer Interrupt Count: %d\n", getTimerCount());
 }

@@ -92,7 +92,7 @@ int kIToA(long lValue, char* pcBuffer, int iRadix) {
     if(lValue == 0) {
         pcBuffer[i++] = '0';
         pcBuffer[i] = '\0';
-        return pcBuffer;
+        return 1;
     }
 
     if(lValue < 0) {
@@ -142,11 +142,11 @@ long kAToI(const char* pcBuffer, int iRadix) {
 
         if(iRadix == 16) {
             if('a' <= pcBuffer[i] && pcBuffer[i] <= 'z') {
-                lValue += pcBuffer[i] - 'a';
+                lValue += pcBuffer[i] - 'a' + 10;
                 continue;
             }
             if('A' <= pcBuffer[i] && pcBuffer[i] <= 'Z') {
-                lValue += pcBuffer[i] - 'A';
+                lValue += pcBuffer[i] - 'A' + 10;
                 continue;
             }
         }

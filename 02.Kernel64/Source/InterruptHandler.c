@@ -4,6 +4,16 @@
 #include "Keyboard.h"
 #include "Console.h"
 
+static int TimerCount = 0;
+
+int getTimerCount(void) {
+    return TimerCount;
+}
+
+void resetTimerCount(void) {
+    TimerCount = 0;
+}
+
 void kCommonExceptionHandler(int iVectorNumber, QWORD qwErrorCode) {
     char vcBuffer[3] = {0, };
 
@@ -30,6 +40,10 @@ void kCommonInterruptHandler(int iVectorNumber) {
     vcBuffer[8] = '0' + g_iCommonInterruptCount;
     g_iCommonInterruptCount = (g_iCommonInterruptCount+1)%10;
     kPrintStringXY(70, 0, vcBuffer);
+
+    if(iVectorNumber == 32) {
+        TimerCount++;
+    }
 
     kSendEOIToPIC(iVectorNumber - PIC_IRQSTARTVECTOR);
 }
