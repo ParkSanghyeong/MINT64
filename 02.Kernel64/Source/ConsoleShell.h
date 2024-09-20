@@ -29,21 +29,21 @@ void kExecuteCommand(const char* pcCommandBuffer);
 void kInitializeParameter(PARAMETERLIST* pstList, const char* pcParameter); 
 int  kGetNextParameter(PARAMETERLIST* pstList, char* pcParameter);
 
-void kHelp(const char* pcParameterBuffer);
-void kCls(const char* pcParameterBuffer);
-void kShowTotalRAMSize(const char* pcParameterBuffer);
-void kStringToDecimalHexTest(const char* pcParameterBuffer); 
-void kShutdown(const char* pcParamegerBuffer);
+static void kHelp(const char* pcParameterBuffer);
+static void kCls(const char* pcParameterBuffer);
+static void kShowTotalRAMSize(const char* pcParameterBuffer);
+static void kStringToDecimalHexTest(const char* pcParameterBuffer); 
+static void kShutdown(const char* pcParamegerBuffer);
+static void kSetTimer( const char* pcParameterBuffer );
+static void kWaitUsingPIT( const char* pcParameterBuffer );
+static void kReadTimeStampCounter( const char* pcParameterBuffer ); 
+static void kMeasureProcessorSpeed( const char* pcParameterBuffer ); 
+static void kShowDateAndTime( const char* pcParameterBuffer );
+static void kCreateTestTask(const char* pcParameterBuffer);
+static void kChangeTaskPriority( const char* pcParameterBuffer ); static void kShowTaskList( const char* pcParameterBuffer );
+static void kKillTask( const char* pcParameterBuffer );
+static void kCPULoad( const char* pcParameterBuffer );
 
-void kSetTimer( const char* pcParameterBuffer );
-void kWaitUsingPIT( const char* pcParameterBuffer );
-void kReadTimeStampCounter( const char* pcParameterBuffer ); 
-void kMeasureProcessorSpeed( const char* pcParameterBuffer ); 
-void kShowDateAndTime( const char* pcParameterBuffer );
-void kCreateTestTask(const char* pcParameterBuffer);
-
-void kTimerInterruptCount(const char* pcParameterBuffer);
-
-void kTestTask1(void);
-void kTestTask2(void);
+static void kTestTask1(void);
+static void kTestTask2(void);
 #endif

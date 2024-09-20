@@ -1,6 +1,7 @@
 #include "Task.h"
 #include "Descriptor.h"
 #include "Utility.h"
+#include "Console.h"
 
 static SCHEDULER gs_stScheduler;
 static TCBPOOLMANAGER gs_stTCBPoolManager;
@@ -50,7 +51,7 @@ TCB* kAllocateTCB(void) {
 void kFreeTCB(QWORD qwID) {
     int i;
 
-    i = qwID & 0xffffffff;
+    i = GETTCBOFFSET(qwID);
 
     kMemSet(&(gs_stTCBPoolManager.pstStartAddress[i].stContext), 0, sizeof(CONTEXT));
     gs_stTCBPoolManager.pstStartAddress[i].stLink.qwID = i;
@@ -67,7 +68,7 @@ TCB* kCreateTask(QWORD qwFlags, QWORD qwEntryPointAddress) {
         return NULL;
     }
 
-    pvStackAddress = (void*)(TASK_STACKPOOLADDRESS + (TASK_STACKSIZE * (pstTask->stLink.qwID & 0xffffffff)));
+    pvStackAddress = (void*)(TASK_STACKPOOLADDRESS + (TASK_STACKSIZE * GETTCBOFFSET(pstTask->stLink.qwID)));
 
     kSetUpTask(pstTask, qwFlags, qwEntryPointAddress, pvStackAddress, TASK_STACKSIZE);
     kAddTaskToReadyList(pstTask);
@@ -77,12 +78,25 @@ TCB* kCreateTask(QWORD qwFlags, QWORD qwEntryPointAddress) {
 
 // Scheduler
 void kInitializeScheduler(void) {
+    int i;
+
     // TCB Pool
     kInitializeTCBPool();
-    // Ready List
-    kInitializeList(&(gs_stScheduler.stReadyList));
+
+    // Task List
+    for(i = 0; i < TASK_MAXREADYLISTCOUNT; i++) {
+        kInitializeList(&(gs_stScheduler.vstReadyList[i]));
+        gs_stScheduler.viExecuteCount[i] = 0;
+    }
+    kInitializeList(&(gs_stScheduler.stWaitList));
+
     // Initial Running Task
     gs_stScheduler.pstRunningTask = kAllocateTCB();
+    gs_stScheduler.pstRunningTask->qwFlags = TASK_FLAGS_HIGHEST;
+
+    // stat
+    gs_stScheduler.qwSpendProcessorTimeInIdleTask = 0;
+    gs_stScheduler.qwProcessorLoad = 0;
 }
 
 void kSetRunningTask(TCB* pstTask) {
@@ -94,14 +108,87 @@ TCB* kGetRunningTask(void) {
 }
 
 TCB* kGetNextTaskToRun(void) {
-    if(kGetListCount(&(gs_stScheduler.stReadyList)) == 0) {
-        return NULL;
-    }
-    return (TCB*)kRemoveListFromHeader(&(gs_stScheduler.stReadyList));
+    TCB* pstTarget = NULL;
+    int iTaskCount, i, j;
+
+    for(j = 0; j < 2; j++) {
+        for(i = 0; i < TASK_MAXREADYLISTCOUNT; i++) {
+            iTaskCount = kGetListCount(&(gs_stScheduler.vstReadyList[i]));
+
+            if(gs_stScheduler.viExecuteCount[i] < iTaskCount) {
+                pstTarget = (TCB*) kRemoveListFromHeader(&(gs_stScheduler.vstReadyList[i]));
+                gs_stScheduler.viExecuteCount[i]++;
+                break;
+            }
+            else {
+                gs_stScheduler.viExecuteCount[i] = 0;
+            }
+        }
+
+        if(pstTarget != NULL) {
+            break;
+        }
+    }   
+
+    return pstTarget;
 }
 
-void kAddTaskToReadyList(TCB* pstTask) {
-    kAddListToTail(&(gs_stScheduler.stReadyList), pstTask);
+BOOL kAddTaskToReadyList(TCB* pstTask) {
+    BYTE bPriority;
+
+    bPriority = GETPRIORITY(pstTask->qwFlags);
+    if(bPriority >= TASK_MAXREADYLISTCOUNT) {
+        return FALSE;
+    }
+
+    kAddListToTail(&(gs_stScheduler.vstReadyList[bPriority]), pstTask);
+    return TRUE;
+}
+
+TCB* kRemoveTaskFromReadyList(QWORD qwTaskID) {
+    TCB* pstTarget;
+    BYTE bPriority;
+
+    if(GETTCBOFFSET(qwTaskID) >= TASK_MAXCOUNT) {
+        return NULL;
+    }
+
+    pstTarget = &(gs_stTCBPoolManager.pstStartAddress[GETTCBOFFSET(qwTaskID)]);
+    if(pstTarget->stLink.qwID != qwTaskID) {
+        return NULL;
+    }
+
+    bPriority = GETPRIORITY(pstTarget->qwFlags);
+    
+    pstTarget = kRemoveList(&(gs_stScheduler.vstReadyList[bPriority]), qwTaskID);
+    return pstTarget;
+}
+
+BOOL kChangePriority(QWORD qwTaskID, BYTE bPriority) {
+    TCB* pstTarget;
+
+    if(bPriority > TASK_MAXREADYLISTCOUNT) {
+        return FALSE;
+    }
+
+    pstTarget = gs_stScheduler.pstRunningTask;
+    if(pstTarget->stLink.qwID == qwTaskID) {
+        SETPRIORITY(pstTarget->qwFlags, bPriority);
+    }
+    else {
+        pstTarget = kRemoveTaskFromReadyList(qwTaskID);
+        if(pstTarget == NULL) {
+            pstTarget = kGetTCBInTCBPool(GETTCBOFFSET(qwTaskID));
+            if(pstTarget != NULL) {
+                SETPRIORITY(pstTarget->qwFlags, bPriority);
+            }
+        }
+        else {
+            SETPRIORITY(pstTarget->qwFlags, bPriority);
+            kAddTaskToReadyList(pstTarget);
+        }
+    }
+    return TRUE;
 }
 
 // Schedule Algorithm
@@ -109,7 +196,7 @@ void kSchedule(void) {
     TCB* pstRunningTask, *pstNextTask;
     BOOL bPreviousFlag;
 
-    if(kGetListCount(&(gs_stScheduler.stReadyList)) == 0) {
+    if(kGetReadyTaskCount() < 1) {
         return;
     }
 
@@ -122,11 +209,22 @@ void kSchedule(void) {
     }
 
     pstRunningTask = gs_stScheduler.pstRunningTask;
-    kAddTaskToReadyList(pstRunningTask);
+    gs_stScheduler.pstRunningTask = pstNextTask;
+
+    if((pstRunningTask->qwFlags & TASK_FLAGS_IDLE) == TASK_FLAGS_IDLE) {
+        gs_stScheduler.qwSpendProcessorTimeInIdleTask += TASK_PROCESSORTIME - gs_stScheduler.iProcessorTime;
+    }
 
     gs_stScheduler.iProcessorTime = TASK_PROCESSORTIME;
-    gs_stScheduler.pstRunningTask = pstNextTask;
-    kSwitchContext(&(pstRunningTask->stContext), &(pstNextTask->stContext));
+
+    if(pstRunningTask->qwFlags & TASK_FLAGS_ENDTASK) {
+        kAddListToTail(&(gs_stScheduler.stWaitList), pstRunningTask);
+        kSwitchContext(NULL, &(pstNextTask->stContext));
+    }
+    else {
+        kAddTaskToReadyList(pstRunningTask);
+        kSwitchContext(&(pstRunningTask->stContext), &(pstNextTask->stContext));
+    }
 
     kSetInterruptFlag(bPreviousFlag);
 }
@@ -144,10 +242,20 @@ BOOL kScheduleInInterrupt(void) {
     pcContextAddress = (BYTE*)IST_STARTADDRESS + IST_SIZE - sizeof(CONTEXT);
 
     pstRunningTask = gs_stScheduler.pstRunningTask;
-    kMemCopy(&(pstRunningTask->stContext), pcContextAddress, sizeof(CONTEXT));
-    kAddTaskToReadyList(pstRunningTask);
-
     gs_stScheduler.pstRunningTask = pstNextTask;
+
+    if((pstRunningTask->qwFlags & TASK_FLAGS_IDLE) == TASK_FLAGS_IDLE) {
+        gs_stScheduler.qwSpendProcessorTimeInIdleTask += TASK_PROCESSORTIME;
+    }
+
+    if(pstRunningTask->qwFlags & TASK_FLAGS_ENDTASK) {
+        kAddListToTail(&(gs_stScheduler.stWaitList), pstRunningTask);
+    }
+    else {
+        kMemCopy(&(pstRunningTask->stContext), pcContextAddress, sizeof(CONTEXT));
+        kAddTaskToReadyList(pstRunningTask);
+    }
+
     kMemCopy(pcContextAddress, &(pstNextTask->stContext), sizeof(CONTEXT));
 
     gs_stScheduler.iProcessorTime = TASK_PROCESSORTIME;
@@ -191,4 +299,133 @@ void kSetUpTask(TCB *pstTCB, QWORD qwFlags, QWORD qwEntryPointAddress, void *pvS
     pstTCB->pvStackAddress = pvStackAddress;
     pstTCB->qwStackSize = qwStackSize;
     pstTCB->qwFlags = qwFlags;
+}
+
+BOOL kEndTask(QWORD qwTaskID) {
+    TCB* pstTarget;
+    BYTE bPriority;
+
+    // if running task
+    pstTarget = gs_stScheduler.pstRunningTask;
+    if(pstTarget->stLink.qwID == qwTaskID) {
+        pstTarget->qwFlags |= TASK_FLAGS_ENDTASK;
+        SETPRIORITY(pstTarget->qwFlags, TASK_FLAGS_WAIT);
+        kSchedule();
+
+        while(1);
+    }
+    else {
+        pstTarget = kRemoveTaskFromReadyList(qwTaskID);
+        if(pstTarget == NULL) {
+            pstTarget = kGetTCBInTCBPool(GETTCBOFFSET(qwTaskID));
+            if(pstTarget != NULL) {
+                pstTarget->qwFlags |= TASK_FLAGS_ENDTASK;
+                SETPRIORITY(pstTarget->qwFlags, TASK_FLAGS_WAIT);
+            }
+            return FALSE;
+        }
+        
+        pstTarget->qwFlags |= TASK_FLAGS_ENDTASK;
+        SETPRIORITY(pstTarget->qwFlags, TASK_FLAGS_WAIT);
+        kAddListToTail(&(gs_stScheduler.stWaitList), pstTarget);
+    }
+    return TRUE;
+}
+
+void kExitTask(void) {
+    kEndTask(gs_stScheduler.pstRunningTask->stLink.qwID);
+}
+
+int kGetReadyTaskCount(void) {
+    int iTotalCount = 0;
+    int i;
+
+    for(i = 0; i < TASK_MAXREADYLISTCOUNT; i++) {
+        iTotalCount += kGetListCount(&(gs_stScheduler.vstReadyList[i]));
+    }
+
+    return iTotalCount;
+}
+
+int kGetTaskCount(void) {
+    int iTotalCount;
+
+    iTotalCount = kGetReadyTaskCount();
+    iTotalCount += kGetListCount(&(gs_stScheduler.stWaitList)) + 1;
+
+    return iTotalCount;
+}
+
+TCB* kGetTCBInTCBPool(int iOffset) {
+    if((iOffset < -1) || (iOffset > TASK_MAXCOUNT)) {
+        return NULL;
+    }
+    return &(gs_stTCBPoolManager.pstStartAddress[iOffset]);
+}
+
+BOOL kIsTaskExist(QWORD qwID) {
+    TCB* pstTCB;
+
+    pstTCB = kGetTCBInTCBPool(GETTCBOFFSET(qwID));
+    if((pstTCB == NULL) || (pstTCB->stLink.qwID != qwID)) {
+        return FALSE;
+    }  
+    return TRUE;
+}
+
+QWORD kGetProcessorLoad(void) {
+    return gs_stScheduler.qwProcessorLoad;
+}
+
+void kIdleTask(void) {
+    TCB* pstTask;
+    QWORD qwLastMeasureTickCount, qwLastSpendTickInIdleTask;
+    QWORD qwCurrentMeasureTickCount, qwCurrentSpendTickInIdleTask;
+
+    qwLastSpendTickInIdleTask = gs_stScheduler.qwSpendProcessorTimeInIdleTask;
+    qwLastMeasureTickCount = kGetTickCount();
+
+    while(1) {
+        qwCurrentMeasureTickCount = kGetTickCount();
+        qwCurrentSpendTickInIdleTask = gs_stScheduler.qwSpendProcessorTimeInIdleTask;
+
+        if(qwCurrentMeasureTickCount - qwLastMeasureTickCount == 0) {
+            gs_stScheduler.qwProcessorLoad = 0;
+        }
+        else {
+            gs_stScheduler.qwProcessorLoad = 100 - (qwCurrentSpendTickInIdleTask - qwLastSpendTickInIdleTask) * 100 / (qwCurrentMeasureTickCount - qwLastMeasureTickCount);
+        }
+
+        qwLastMeasureTickCount = qwCurrentMeasureTickCount;
+        qwLastSpendTickInIdleTask = qwCurrentSpendTickInIdleTask;
+
+        kHaltProcessorByLoad();
+
+        if(kGetListCount(&(gs_stScheduler.stWaitList)) >= 0) {
+            while(1) {
+                pstTask = kRemoveListFromHeader(&(gs_stScheduler.stWaitList));
+                if(pstTask == NULL) {
+                    break;
+                }
+                kPrintf("IDLE: Task ID[0x%q] is completely ended.\n", pstTask->stLink.qwID);
+                kFreeTCB(pstTask->stLink.qwID);
+            }
+        }
+        kSchedule();
+    }
+}
+
+void kHaltProcessorByLoad(void) {
+    if(gs_stScheduler.qwProcessorLoad < 40) {
+        kHlt();
+        kHlt();
+        kHlt();
+    }
+    else if(gs_stScheduler.qwProcessorLoad < 80) {
+        kHlt();
+        kHlt();
+    }
+    else if(gs_stScheduler.qwProcessorLoad < 95) {
+        kHlt();
+    }
 }
