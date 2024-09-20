@@ -1,4 +1,4 @@
-cpu: model=corei7_sandy_bridge_2600k, ips=85000000
+cpu: model=corei7_sandy_bridge_2600k, ips=1000000
 memory: guest=128, host=128
 
 boot: floppy

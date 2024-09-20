@@ -3,16 +3,8 @@
 #include "Utility.h"
 #include "Keyboard.h"
 #include "Console.h"
-
-static int TimerCount = 0;
-
-int getTimerCount(void) {
-    return TimerCount;
-}
-
-void resetTimerCount(void) {
-    TimerCount = 0;
-}
+#include "Task.h"
+#include "Descriptor.h"
 
 void kCommonExceptionHandler(int iVectorNumber, QWORD qwErrorCode) {
     char vcBuffer[3] = {0, };
@@ -41,10 +33,6 @@ void kCommonInterruptHandler(int iVectorNumber) {
     g_iCommonInterruptCount = (g_iCommonInterruptCount+1)%10;
     kPrintStringXY(70, 0, vcBuffer);
 
-    if(iVectorNumber == 32) {
-        TimerCount++;
-    }
-
     kSendEOIToPIC(iVectorNumber - PIC_IRQSTARTVECTOR);
 }
 
@@ -65,4 +53,24 @@ void kKeyboardHandler(int iVectorNumber) {
     }
 
     kSendEOIToPIC(iVectorNumber - PIC_IRQSTARTVECTOR);
+}
+
+void kTimerHandler(int iVectorNumber) {
+    char vcBuffer[] = "[INT:  , ]";
+    static int g_iTimerInterruptCount = 0;
+
+    vcBuffer[5] = '0' + iVectorNumber/10;
+    vcBuffer[6] = '0' + iVectorNumber%10;
+    vcBuffer[8] = '0' + g_iTimerInterruptCount;
+    g_iTimerInterruptCount = (g_iTimerInterruptCount+1)%10;
+    kPrintStringXY(70, 0, vcBuffer);
+
+    kSendEOIToPIC(iVectorNumber - PIC_IRQSTARTVECTOR);
+
+    g_qwTickCount++;
+
+    kDecreaseProcessorTime();
+    if(kIsProcessorTimeExpired() == TRUE) {
+        kScheduleInInterrupt();
+    }
 }

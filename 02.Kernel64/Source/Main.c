@@ -4,6 +4,10 @@
 #include "PIC.h"
 #include "Console.h"
 #include "ConsoleShell.h"
+#include "AssemblyUtility.h"
+#include "Utility.h"
+#include "Task.h"
+#include "PIT.h"
 
 void Main(void) {
     int iCursorX, iCursorY;
@@ -36,6 +40,11 @@ void Main(void) {
     kCheckTotalRAMSize();
     kSetCursor(45, iCursorY++);
     kPrintf("PASS], Size = %d MB\n", kGetTotalRAMSize());
+    
+    kPrintf("TCB Pool And Scheduler Initialize...........[PASS]");
+    iCursorY++;
+    kInitializeScheduler();
+    kInitializePIT(MSTOCOUNT(1), 1);
     
     kPrintf("KeyBoard Activate And Queue Initialize......[    ]");
 

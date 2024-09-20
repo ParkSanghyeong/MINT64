@@ -17,4 +17,8 @@ int kIToA(long lValue, char* pcBuffer, int iRadix);
 long kAToI(const char* pcBuffer, int iRadix);
 int kStrLen(const char* pcBuffer);
 
+QWORD kGetTickCount(void);
+
+extern volatile QWORD g_qwTickCount;
+
 #endif

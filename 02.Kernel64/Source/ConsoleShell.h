@@ -40,7 +40,10 @@ void kWaitUsingPIT( const char* pcParameterBuffer );
 void kReadTimeStampCounter( const char* pcParameterBuffer ); 
 void kMeasureProcessorSpeed( const char* pcParameterBuffer ); 
 void kShowDateAndTime( const char* pcParameterBuffer );
+void kCreateTestTask(const char* pcParameterBuffer);
 
 void kTimerInterruptCount(const char* pcParameterBuffer);
 
+void kTestTask1(void);
+void kTestTask2(void);
 #endif

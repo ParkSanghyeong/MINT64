@@ -2,6 +2,7 @@
     SECTION .text 
 
 extern kCommonExceptionHandler, kCommonInterruptHandler, kKeyboardHandler 
+extern kTimerHandler
 
 ; Exception
 global kISRDivideError, kISRDebug, kISRNMI, kISRBreakPoint, kISROverflow
@@ -291,7 +292,7 @@ kISRTimer:
     KSAVECONTEXT     
     
     mov rdi, 32
-    call kCommonInterruptHandler 
+    call kTimerHandler
     KLOADCONTEXT
     
     iretq            
